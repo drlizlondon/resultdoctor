@@ -17,7 +17,7 @@
  * - NWL Anaemia Pathway (V1, 9/7/20)
  */
 
-import type { CatalogueTest } from "../types";
+import type { CatalogueTest, Sex } from "../../types";
 
 export const RESULTS_CATALOGUE: CatalogueTest[] = [
 
