@@ -201,7 +201,8 @@ export function runPathway(
           continue;
         }
 
-        if (value !== undefined && evaluateCondition(branch.condition, value, sex)) {
+        const cond = Array.isArray(branch.condition) ? branch.condition[0] : branch.condition;
+        if (value !== undefined && cond && evaluateCondition(cond, value, sex)) {
           matchedBranch = branch;
           break;
         }
@@ -577,25 +578,23 @@ export function getChallengeRound1(
     }
   }
 
-  return [...toAsk]
-    .map((testId) => {
-      const test = catalogueById[testId];
-      if (!test) return null;
-      return {
-        testId,
-        testLabel: test.label,
-        patientExplanation: test.patientExplanation,
-        unit: test.unit,
-        reason: `This test usually appears on the same report as ${enteredTestIds
-          .map((id) => catalogueById[id]?.abbreviation)
-          .filter(Boolean)
-          .join(", ")}.`,
-        couldChangeUrgency: true,
-        couldChangeReferral: true,
-        groupLabel: test.groupLabel,
-      };
-    })
-    .filter((q): q is ChallengeQuestion => q !== null);
+  return [...toAsk].flatMap((testId): ChallengeQuestion[] => {
+    const test = catalogueById[testId];
+    if (!test) return [];
+    return [{
+      testId,
+      testLabel: test.label,
+      patientExplanation: test.patientExplanation,
+      unit: test.unit,
+      reason: `This test usually appears on the same report as ${enteredTestIds
+        .map((id) => catalogueById[id]?.abbreviation)
+        .filter(Boolean)
+        .join(", ")}.`,
+      couldChangeUrgency: true,
+      couldChangeReferral: true,
+      groupLabel: test.groupLabel,
+    }];
+  });
 }
 
 /**
@@ -608,10 +607,10 @@ export function getChallengeRound2(
   return synthesis.gaps
     .filter((gap) => gap.status === "unknown")
     .filter((gap) => gap.wouldChangeUrgency || gap.wouldChangeReferral)
-    .map((gap) => {
+    .flatMap((gap): ChallengeQuestion[] => {
       const test = catalogueById[gap.testId];
-      if (!test) return null;
-      return {
+      if (!test) return [];
+      return [{
         testId: gap.testId,
         testLabel: test.label,
         patientExplanation: test.patientExplanation,
@@ -622,7 +621,6 @@ export function getChallengeRound2(
         couldChangeUrgency: gap.wouldChangeUrgency,
         couldChangeReferral: gap.wouldChangeReferral,
         groupLabel: test.groupLabel,
-      };
-    })
-    .filter((q): q is ChallengeQuestion => q !== null);
+      }];
+    });
 }
