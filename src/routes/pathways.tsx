@@ -1,279 +1,331 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { categories, pathways, type PathwayCategory } from "@/lib/pathways";
-import { useMode } from "@/lib/mode";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 
 export const Route = createFileRoute("/pathways")({
-  head: () => ({
-    meta: [
-      { title: "Haematology Pathways — NW London ICB | ResultDoctor" },
-      {
-        name: "description",
-        content:
-          "Browse 20 NW London ICB haematology pathways. Anaemia, iron deficiency, white cells, platelets and more.",
-      },
-      { property: "og:title", content: "NW London ICB Haematology Pathways" },
-    ],
-  }),
   component: PathwaysPage,
 });
 
-// ─── Quick-entry widget ───────────────────────────────────────
-//
-// Maps test IDs → which pathway slug to route to.
-// Expandable as more pathways become available.
-const TEST_ROUTING: Record<string, { slug: string; label: string; unit: string; min: number; max: number }> = {
-  hb: {
-    slug: "anaemia",
-    label: "Haemoglobin (Hb)",
-    unit: "g/L",
-    min: 50,
-    max: 200,
+// ─── PATHWAY REGISTRY ────────────────────────────────────────────────────────
+const PATHWAYS = [
+  // ── HAEMATOLOGY ──────────────────────────────────────────────────────────
+  {
+    id: "anaemia",
+    category: "Haematology",
+    emoji: "🩸",
+    title: "Anaemia",
+    subtitle: "Iron deficiency pathway",
+    description:
+      "Hb, MCV, ferritin → referral decision with sex-specific thresholds. Outcome A (haematology), B (specialist), or C (primary care).",
+    icb: "NWL ICB",
+    version: "V1 · 9/7/20",
+    status: "live" as const,
+    inputs: ["Hb", "MCV", "Ferritin"],
+    route: "/pathway/anaemia",
+    accentColor: "red",
   },
-  ferritin: {
-    slug: "anaemia",
-    label: "Ferritin",
-    unit: "ug/L",
-    min: 1,
-    max: 1000,
+  {
+    id: "lft",
+    category: "Hepatology",
+    emoji: "🫀",
+    title: "Abnormal LFTs",
+    subtitle: "Liver function test pathway",
+    description:
+      "ALT, AST, ALP, GGT, bilirubin, albumin → pattern recognition (hepatitic/cholestatic/mixed), FIB-4 fibrosis risk score, and referral urgency.",
+    icb: "NCL ICB",
+    version: "BSG 2018",
+    status: "live" as const,
+    inputs: ["ALT", "AST", "ALP", "GGT", "Bilirubin", "Albumin"],
+    route: "/pathway/lft",
+    accentColor: "emerald",
   },
-  mcv: {
-    slug: "anaemia",
-    label: "MCV",
-    unit: "fL",
-    min: 40,
-    max: 150,
+  {
+    id: "thrombocytopenia",
+    category: "Haematology",
+    emoji: "🔴",
+    title: "Thrombocytopenia",
+    subtitle: "Low platelet pathway",
+    description:
+      "Platelet count + clinical context → referral thresholds. Persistent <80 ×10⁹/L for 4 months or <80 with symptoms requires haematology referral.",
+    icb: "NWL ICB",
+    version: "V1 · 9/7/20",
+    status: "coming_soon" as const,
+    inputs: ["Platelets", "Duration", "Symptoms"],
+    route: null,
+    accentColor: "rose",
+  },
+  {
+    id: "macrocytosis",
+    category: "Haematology",
+    emoji: "🔵",
+    title: "Macrocytosis",
+    subtitle: "Raised MCV pathway",
+    description:
+      "MCV >101 fL → B12, folate, TFTs, alcohol, LFTs. Distinguishes between causes and directs investigation.",
+    icb: "NWL ICB",
+    version: "V1 · 9/7/20",
+    status: "coming_soon" as const,
+    inputs: ["MCV", "B12", "Folate", "TSH"],
+    route: null,
+    accentColor: "blue",
+  },
+  {
+    id: "neutropenia",
+    category: "Haematology",
+    emoji: "⚪",
+    title: "Neutropenia",
+    subtitle: "Low neutrophil pathway",
+    description:
+      "Neutrophil count grading: severe <0.5, moderate 0.5–1.0, mild 1.0–1.5 ×10⁹/L. Risk stratification and referral criteria.",
+    icb: "NWL ICB",
+    version: "V1 · 9/7/20",
+    status: "coming_soon" as const,
+    inputs: ["Neutrophils", "WBC", "Clinical context"],
+    route: null,
+    accentColor: "slate",
+  },
+  {
+    id: "b12",
+    category: "Haematology",
+    emoji: "🟡",
+    title: "B12 Deficiency",
+    subtitle: "Cobalamin pathway",
+    description:
+      "Serum B12 + symptoms → intrinsic factor antibodies, treatment decision (IM vs oral), and haematology referral criteria.",
+    icb: "NWL ICB",
+    version: "V1 · 9/7/20",
+    status: "coming_soon" as const,
+    inputs: ["B12", "Folate", "Symptoms"],
+    route: null,
+    accentColor: "yellow",
+  },
+];
+
+const CATEGORY_ORDER = ["Haematology", "Hepatology"];
+
+const accentStyles: Record<string, { badge: string; border: string; button: string; tag: string }> = {
+  red: {
+    badge: "bg-red-100 text-red-700",
+    border: "hover:border-red-300 focus-within:border-red-300",
+    button: "bg-red-600 hover:bg-red-700 text-white",
+    tag: "bg-red-50 text-red-700",
+  },
+  emerald: {
+    badge: "bg-emerald-100 text-emerald-700",
+    border: "hover:border-emerald-300 focus-within:border-emerald-300",
+    button: "bg-emerald-600 hover:bg-emerald-700 text-white",
+    tag: "bg-emerald-50 text-emerald-700",
+  },
+  rose: {
+    badge: "bg-rose-100 text-rose-700",
+    border: "hover:border-rose-200",
+    button: "bg-slate-200 text-slate-500 cursor-not-allowed",
+    tag: "bg-rose-50 text-rose-700",
+  },
+  blue: {
+    badge: "bg-blue-100 text-blue-700",
+    border: "hover:border-blue-200",
+    button: "bg-slate-200 text-slate-500 cursor-not-allowed",
+    tag: "bg-blue-50 text-blue-700",
+  },
+  slate: {
+    badge: "bg-slate-100 text-slate-600",
+    border: "hover:border-slate-300",
+    button: "bg-slate-200 text-slate-500 cursor-not-allowed",
+    tag: "bg-slate-50 text-slate-600",
+  },
+  yellow: {
+    badge: "bg-yellow-100 text-yellow-700",
+    border: "hover:border-yellow-200",
+    button: "bg-slate-200 text-slate-500 cursor-not-allowed",
+    tag: "bg-yellow-50 text-yellow-700",
   },
 };
 
-const TEST_OPTIONS = Object.entries(TEST_ROUTING).map(([id, cfg]) => ({
-  id,
-  label: cfg.label,
-  unit: cfg.unit,
-}));
-
-function QuickEntryWidget() {
-  const { mode } = useMode();
-  const navigate = useNavigate();
-  const [selectedTest, setSelectedTest] = useState<string>("hb");
-  const [value, setValue] = useState<string>("");
-  const [error, setError] = useState<string>("");
-
-  const testCfg = TEST_ROUTING[selectedTest];
-  const numValue = parseFloat(value);
-  const isValid = value !== "" && !isNaN(numValue) && numValue >= testCfg.min && numValue <= testCfg.max;
-
-  function handleGo() {
-    if (!isValid) {
-      setError(`Please enter a value between ${testCfg.min} and ${testCfg.max} ${testCfg.unit}`);
-      return;
-    }
-    setError("");
-    // Navigate to the pathway — the pathway reads state from the URL or session
-    // For now, navigate directly. Future: pass result as search params.
-    navigate({ to: `/pathway/${testCfg.slug}` as any });
-  }
-
-  function handleTestChange(id: string) {
-    setSelectedTest(id);
-    setValue("");
-    setError("");
-  }
+function PathwayCard({
+  pathway,
+  onNavigate,
+}: {
+  pathway: (typeof PATHWAYS)[number];
+  onNavigate: (route: string) => void;
+}) {
+  const accent = accentStyles[pathway.accentColor] ?? accentStyles.slate;
+  const isLive = pathway.status === "live";
 
   return (
-    <div className="bg-card rounded-[18px] ring-2 ring-primary/20 p-6 sm:p-8 shadow-card mb-10">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="size-2 rounded-full bg-primary animate-pulse" />
-        <p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">
-          Quick result lookup
-        </p>
-      </div>
-      <h2 className="text-lg sm:text-xl font-semibold tracking-tight text-foreground mb-1">
-        {mode === "patient"
-          ? "Have a result? Enter it here."
-          : "Enter a result to navigate directly to its pathway."}
-      </h2>
-      <p className="text-sm text-muted-foreground mb-6">
-        {mode === "patient"
-          ? "Select the test from your blood report and type in the number."
-          : "Routes automatically to the correct decision engine."}
-      </p>
-
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
-        {/* Test selector */}
-        <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Test
-          </label>
-          <select
-            value={selectedTest}
-            onChange={(e) => handleTestChange(e.target.value)}
-            className="h-12 bg-background rounded-[10px] ring-1 ring-border px-3 text-sm font-medium text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-primary transition-colors"
-          >
-            {TEST_OPTIONS.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.label} ({t.unit})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Value input */}
-        <div className="flex flex-col gap-1.5 w-40 shrink-0">
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Result value
-          </label>
-          <div className="flex items-center h-12 bg-background rounded-[10px] ring-1 ring-border focus-within:ring-primary px-3 gap-2 transition-colors">
-            <input
-              type="number"
-              inputMode="decimal"
-              min={testCfg.min}
-              max={testCfg.max}
-              step="0.1"
-              value={value}
-              onChange={(e) => {
-                setValue(e.target.value);
-                setError("");
-              }}
-              onKeyDown={(e) => e.key === "Enter" && handleGo()}
-              placeholder="0"
-              className="flex-1 bg-transparent text-base font-semibold tabular-nums outline-none placeholder:text-muted-foreground/40 min-w-0"
-            />
-            <span className="text-xs font-medium text-muted-foreground shrink-0">
-              {testCfg.unit}
-            </span>
+    <div
+      className={`bg-white rounded-xl border-2 border-slate-200 p-5 flex flex-col gap-3 transition-all ${
+        isLive ? `cursor-pointer ${accent.border}` : "opacity-75"
+      }`}
+      onClick={() => isLive && pathway.route && onNavigate(pathway.route)}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <span className="text-2xl">{pathway.emoji}</span>
+          <div>
+            <h3 className="font-bold text-slate-900 leading-tight">
+              {pathway.title}
+            </h3>
+            <p className="text-xs text-slate-500">{pathway.subtitle}</p>
           </div>
         </div>
-
-        {/* Go button */}
-        <button
-          onClick={handleGo}
-          className="h-12 px-6 rounded-[10px] bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 hover:-translate-y-0.5 transition-all shadow-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:translate-y-0"
-        >
-          Find pathway →
-        </button>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <span
+            className={`text-xs font-semibold px-2 py-0.5 rounded-full ${accent.badge}`}
+          >
+            {pathway.icb}
+          </span>
+          {isLive ? (
+            <span className="text-xs text-green-600 font-medium">● Live</span>
+          ) : (
+            <span className="text-xs text-slate-400 font-medium">
+              Coming soon
+            </span>
+          )}
+        </div>
       </div>
 
-      {error && (
-        <p className="mt-2 text-xs font-medium text-red-600">{error}</p>
-      )}
-
-      <p className="mt-4 text-xs text-muted-foreground">
-        More tests coming soon: TSH, LFTs, B12, folate, neutrophils, platelets.
+      <p className="text-sm text-slate-600 leading-relaxed">
+        {pathway.description}
       </p>
+
+      <div className="flex flex-wrap gap-1.5">
+        {pathway.inputs.map((inp) => (
+          <span
+            key={inp}
+            className={`text-xs px-2 py-0.5 rounded-md font-medium ${accent.tag}`}
+          >
+            {inp}
+          </span>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between mt-auto pt-1">
+        <span className="text-xs text-slate-400">{pathway.version}</span>
+        <button
+          className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${accent.button}`}
+          disabled={!isLive}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isLive && pathway.route) onNavigate(pathway.route);
+          }}
+        >
+          {isLive ? "Open pathway →" : "In development"}
+        </button>
+      </div>
     </div>
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────
 function PathwaysPage() {
-  const { mode } = useMode();
-  const [filter, setFilter] = useState<"All" | PathwayCategory>("All");
+  const navigate = useNavigate();
+  const [search, setSearch] = useState("");
 
-  const filtered = useMemo(
-    () =>
-      filter === "All"
-        ? pathways
-        : pathways.filter((p) => p.category === filter),
-    [filter]
+  const filtered = PATHWAYS.filter(
+    (p) =>
+      p.title.toLowerCase().includes(search.toLowerCase()) ||
+      p.subtitle.toLowerCase().includes(search.toLowerCase()) ||
+      p.inputs.some((i) =>
+        i.toLowerCase().includes(search.toLowerCase())
+      ) ||
+      p.category.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const liveCount = PATHWAYS.filter((p) => p.status === "live").length;
+  const totalCount = PATHWAYS.length;
+
+  const grouped = CATEGORY_ORDER.reduce(
+    (acc, cat) => {
+      const cat_pathways = filtered.filter((p) => p.category === cat);
+      if (cat_pathways.length) acc[cat] = cat_pathways;
+      return acc;
+    },
+    {} as Record<string, typeof PATHWAYS>
   );
 
   return (
-    <div className="w-full max-w-[1280px] mx-auto px-5 sm:px-8 py-10 sm:py-14">
+    <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <div className="flex items-center gap-2 text-xs font-medium text-primary bg-primary/10 px-3 py-1.5 rounded-full ring-1 ring-primary/15 w-fit mb-5">
-        <span className="size-1.5 rounded-full bg-primary" />
-        NW London ICB
-      </div>
-      <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-foreground">
-        Haematology Pathways
-      </h1>
-      <p className="mt-2 text-base sm:text-lg text-muted-foreground mb-8">
-        {mode === "patient"
-          ? "Select the condition that matches your blood test result."
-          : "Select the condition you want to navigate."}
-      </p>
+      <div className="bg-white border-b border-slate-200">
+        <div className="max-w-4xl mx-auto px-4 py-5">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <div className="flex items-center gap-2 mb-0.5">
+                <button
+                  onClick={() => navigate({ to: "/" })}
+                  className="text-slate-400 hover:text-slate-600 transition-colors text-sm"
+                >
+                  ←
+                </button>
+                <h1 className="text-xl font-bold text-slate-900">
+                  Clinical Pathways
+                </h1>
+              </div>
+              <p className="text-sm text-slate-500">
+                {liveCount} live · {totalCount - liveCount} in development
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-xs bg-blue-100 text-blue-700 font-semibold px-2.5 py-1 rounded-full">
+                NWL ICB
+              </span>
+              <span className="text-xs bg-emerald-100 text-emerald-700 font-semibold px-2.5 py-1 rounded-full">
+                NCL ICB
+              </span>
+            </div>
+          </div>
 
-      {/* Quick entry widget */}
-      <QuickEntryWidget />
-
-      {/* Filter pills */}
-      <div className="mt-2 -mx-5 sm:mx-0 px-5 sm:px-0 overflow-x-auto">
-        <div className="flex gap-2 min-w-max pb-1">
-          {categories.map((c) => (
-            <button
-              key={c}
-              onClick={() => setFilter(c)}
-              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ring-1 ${
-                filter === c
-                  ? "bg-primary text-primary-foreground ring-primary shadow-sm"
-                  : "bg-card text-muted-foreground ring-border hover:text-foreground hover:ring-primary/30"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
+          {/* Quick lookup search */}
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
+              🔍
+            </span>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by test name, e.g. ALT, ferritin, MCV…"
+              className="w-full pl-9 pr-4 py-2.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
         </div>
       </div>
 
-      {/* Cards grid */}
-      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((p) => {
-          const Card = (
-            <div
-              className={`h-full bg-card rounded-[14px] p-5 ring-1 transition-all flex flex-col ${
-                p.available
-                  ? "ring-border hover:ring-primary hover:-translate-y-0.5 hover:shadow-card cursor-pointer"
-                  : "ring-border/60 opacity-60 cursor-not-allowed"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="size-10 rounded-[10px] bg-primary/10 flex items-center justify-center text-primary">
-                  <svg viewBox="0 0 24 24" fill="none" className="size-5">
-                    <path
-                      d="M12 2.5c3 4.5 6 7.5 6 11.5a6 6 0 1 1-12 0c0-4 3-7 6-11.5Z"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-                <span
-                  className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${
-                    p.available
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground ring-1 ring-border"
-                  }`}
-                >
-                  {p.available ? "Available" : "Coming soon"}
-                </span>
-              </div>
-              <h3 className="mt-4 font-semibold text-base text-foreground tracking-tight">
-                {p.name}
-              </h3>
-              {mode === "patient" && (
-                <p className="mt-0.5 text-xs text-primary/80 font-medium">{p.plain}</p>
-              )}
-              <p className="mt-2 text-sm text-muted-foreground leading-relaxed flex-1">
-                {p.description}
-              </p>
-              {p.available && (
-                <div className="mt-4 pt-3 border-t border-border flex items-center gap-1.5 text-xs font-semibold text-primary">
-                  Open pathway
-                  <span>→</span>
-                </div>
-              )}
+      {/* Grid */}
+      <div className="max-w-4xl mx-auto px-4 py-6 space-y-8">
+        {Object.entries(grouped).map(([category, pathways]) => (
+          <div key={category}>
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">
+              {category}
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {pathways.map((p) => (
+                <PathwayCard
+                  key={p.id}
+                  pathway={p}
+                  onNavigate={(route) => navigate({ to: route as "/" })}
+                />
+              ))}
             </div>
-          );
+          </div>
+        ))}
 
-          return p.available ? (
-            <Link key={p.slug} to="/pathway/anaemia" className="block">
-              {Card}
-            </Link>
-          ) : (
-            <div key={p.slug}>{Card}</div>
-          );
-        })}
+        {filtered.length === 0 && (
+          <div className="text-center py-12 text-slate-400">
+            <div className="text-4xl mb-3">🔍</div>
+            <p className="font-medium">No pathways found for "{search}"</p>
+            <p className="text-sm mt-1">
+              Try searching by test name (e.g. "ALT", "Hb", "ferritin")
+            </p>
+          </div>
+        )}
+
+        {/* Footer note */}
+        <div className="text-center pt-2 pb-6">
+          <p className="text-xs text-slate-400">
+            All pathways are derived from published NHS ICB guidelines and are
+            intended to support — not replace — clinical judgement.
+          </p>
+        </div>
       </div>
     </div>
   );
