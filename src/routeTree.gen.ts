@@ -9,11 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ResultsRouteImport } from './routes/results'
 import { Route as PathwaysRouteImport } from './routes/pathways'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PathwayLftRouteImport } from './routes/pathway.lft'
 import { Route as PathwayAnaemiaRouteImport } from './routes/pathway.anaemia'
 
+const ResultsRoute = ResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PathwaysRoute = PathwaysRouteImport.update({
   id: '/pathways',
   path: '/pathways',
@@ -29,6 +36,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PathwayLftRoute = PathwayLftRouteImport.update({
+  id: '/pathway/lft',
+  path: '/pathway/lft',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PathwayAnaemiaRoute = PathwayAnaemiaRouteImport.update({
   id: '/pathway/anaemia',
   path: '/pathway/anaemia',
@@ -39,38 +51,72 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/pathways': typeof PathwaysRoute
+  '/results': typeof ResultsRoute
   '/pathway/anaemia': typeof PathwayAnaemiaRoute
+  '/pathway/lft': typeof PathwayLftRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/pathways': typeof PathwaysRoute
+  '/results': typeof ResultsRoute
   '/pathway/anaemia': typeof PathwayAnaemiaRoute
+  '/pathway/lft': typeof PathwayLftRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/pathways': typeof PathwaysRoute
+  '/results': typeof ResultsRoute
   '/pathway/anaemia': typeof PathwayAnaemiaRoute
+  '/pathway/lft': typeof PathwayLftRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/pathways' | '/pathway/anaemia'
+  fullPaths:
+    | '/'
+    | '/about'
+    | '/pathways'
+    | '/results'
+    | '/pathway/anaemia'
+    | '/pathway/lft'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/pathways' | '/pathway/anaemia'
-  id: '__root__' | '/' | '/about' | '/pathways' | '/pathway/anaemia'
+  to:
+    | '/'
+    | '/about'
+    | '/pathways'
+    | '/results'
+    | '/pathway/anaemia'
+    | '/pathway/lft'
+  id:
+    | '__root__'
+    | '/'
+    | '/about'
+    | '/pathways'
+    | '/results'
+    | '/pathway/anaemia'
+    | '/pathway/lft'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   PathwaysRoute: typeof PathwaysRoute
+  ResultsRoute: typeof ResultsRoute
   PathwayAnaemiaRoute: typeof PathwayAnaemiaRoute
+  PathwayLftRoute: typeof PathwayLftRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/results': {
+      id: '/results'
+      path: '/results'
+      fullPath: '/results'
+      preLoaderRoute: typeof ResultsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pathways': {
       id: '/pathways'
       path: '/pathways'
@@ -92,6 +138,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pathway/lft': {
+      id: '/pathway/lft'
+      path: '/pathway/lft'
+      fullPath: '/pathway/lft'
+      preLoaderRoute: typeof PathwayLftRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pathway/anaemia': {
       id: '/pathway/anaemia'
       path: '/pathway/anaemia'
@@ -106,7 +159,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   PathwaysRoute: PathwaysRoute,
+  ResultsRoute: ResultsRoute,
   PathwayAnaemiaRoute: PathwayAnaemiaRoute,
+  PathwayLftRoute: PathwayLftRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
