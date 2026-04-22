@@ -9,11 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ResultsRouteImport } from './routes/results'
 import { Route as PathwaysRouteImport } from './routes/pathways'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PathwayAnaemiaRouteImport } from './routes/pathway.anaemia'
 
+const ResultsRoute = ResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PathwaysRoute = PathwaysRouteImport.update({
   id: '/pathways',
   path: '/pathways',
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/pathways': typeof PathwaysRoute
+  '/results': typeof ResultsRoute
   '/pathway/anaemia': typeof PathwayAnaemiaRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/pathways': typeof PathwaysRoute
+  '/results': typeof ResultsRoute
   '/pathway/anaemia': typeof PathwayAnaemiaRoute
 }
 export interface FileRoutesById {
@@ -52,25 +60,40 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/pathways': typeof PathwaysRoute
+  '/results': typeof ResultsRoute
   '/pathway/anaemia': typeof PathwayAnaemiaRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/pathways' | '/pathway/anaemia'
+  fullPaths: '/' | '/about' | '/pathways' | '/results' | '/pathway/anaemia'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/pathways' | '/pathway/anaemia'
-  id: '__root__' | '/' | '/about' | '/pathways' | '/pathway/anaemia'
+  to: '/' | '/about' | '/pathways' | '/results' | '/pathway/anaemia'
+  id:
+    | '__root__'
+    | '/'
+    | '/about'
+    | '/pathways'
+    | '/results'
+    | '/pathway/anaemia'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   PathwaysRoute: typeof PathwaysRoute
+  ResultsRoute: typeof ResultsRoute
   PathwayAnaemiaRoute: typeof PathwayAnaemiaRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/results': {
+      id: '/results'
+      path: '/results'
+      fullPath: '/results'
+      preLoaderRoute: typeof ResultsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pathways': {
       id: '/pathways'
       path: '/pathways'
@@ -106,6 +129,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   PathwaysRoute: PathwaysRoute,
+  ResultsRoute: ResultsRoute,
   PathwayAnaemiaRoute: PathwayAnaemiaRoute,
 }
 export const routeTree = rootRouteImport
