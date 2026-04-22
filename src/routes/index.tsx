@@ -175,7 +175,7 @@ function HomePage() {
               <p className="mt-5 text-lg sm:text-xl text-muted-foreground leading-relaxed max-w-[52ch]">
                 {mode === "patient"
                   ? "Enter your blood test results. Get the exact next steps your NHS guideline recommends — in plain English."
-                  : "Interactive decision engines built directly from NHS guidelines. Enter results and get guideline-exact recommendations. Remove the guesswork."}
+                  : "Interactive clinical pathways built directly from NHS guidance. Enter results and get guideline-exact recommendations. Remove the guesswork."}
               </p>
             </div>
 
