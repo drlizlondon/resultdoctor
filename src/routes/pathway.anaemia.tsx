@@ -487,7 +487,7 @@ function AnaemiaPathway() {
       giSymptoms: form.giSymptoms ? "1" : "0",
       familyHistoryCRC: form.familyHistoryCRC ? "1" : "0",
     });
-    navigate({ to: "/results", search: Object.fromEntries(params) });
+    navigate({ to: "/results", search: Object.fromEntries(params) as never });
   }, [form, navigate]);
 
   const hasAnyInput =
