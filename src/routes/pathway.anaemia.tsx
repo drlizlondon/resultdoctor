@@ -1,721 +1,866 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useCallback } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { useMode } from "@/lib/mode";
+import { z } from "zod";
+import { LIVE_PATHWAY_INPUTS } from "@/lib/live-pathway-inputs";
+import { assessReference, type ReferenceSex } from "@/lib/pathway-interpretation";
+import {
+  extractPathwayPriorityCodes,
+  PATHWAY_PRIORITY_LABELS,
+} from "@/lib/pathway-priority";
+import {
+  computeNclAnaemiaResult,
+  DEFAULT_NCL_ANAEMIA_FORM,
+  type NclAnaemiaExplicitChoice,
+  type NclAnaemiaFormState,
+  type NclAnaemiaMcvBranch,
+  NCL_ANAEMIA_PRIMARY_CARE_ASSESSMENT,
+  NCL_ANAEMIA_SOURCE_META,
+  type NclAnaemiaReticBranch,
+} from "@/lib/pathways/ncl/anaemia";
 
-// ─── GUIDELINE SOURCE ────────────────────────────────────────────────────────
-// NWL ICB Haematology Guidelines — NW London Haematology Clinical Reference Group
-// Source: https://www.nwlondonicb.nhs.uk/professionals/clinical-topics/haematology
-// Version: V1 dated 9/7/20 (Anaemia pathway.pdf — document 1 in library)
-const FLOWSHEET_URL = "https://www.nwlondonicb.nhs.uk/download_file/877/577";
-const GUIDELINE_PAGE_URL =
-  "https://www.nwlondonicb.nhs.uk/professionals/clinical-topics/haematology";
-
-// ─── THRESHOLDS ───────────────────────────────────────────────────────────────
-const THRESHOLDS = {
-  hb: { male: 130, female: 114 },
-  mcv: { low: 83.5, high: 101 },
-  ferritin: { male: 20, female: 10 },
-};
-
-// ─── TYPES ───────────────────────────────────────────────────────────────────
-type Sex = "male" | "female";
-type MenopauseStatus = "pre" | "post";
-
-interface FieldState {
-  value: string;
-  notAvailable: boolean;
-}
-
-interface FormState {
-  sex: Sex;
-  menopause: MenopauseStatus;
-  hb: FieldState;
-  mcv: FieldState;
-  ferritin: FieldState;
-  giSymptoms: boolean;
-  familyHistoryCRC: boolean;
-}
-
-interface SynthesisResult {
-  outcome: "A" | "B" | "C" | "insufficient" | null;
-  reasoning: string[];
-  caveats: string[];
-  referralText: string;
-  verbatimGuideline: string;
-  patientSummary: string;
-  patientScript: string;
-}
-
-// ─── SYNTHESIS ENGINE ────────────────────────────────────────────────────────
-function synthesise(form: FormState): SynthesisResult {
-  const { sex, menopause, hb, mcv, ferritin, giSymptoms, familyHistoryCRC } =
-    form;
-
-  const hbVal = hb.notAvailable ? null : parseFloat(hb.value);
-  const mcvVal = mcv.notAvailable ? null : parseFloat(mcv.value);
-  const ferritinVal = ferritin.notAvailable ? null : parseFloat(ferritin.value);
-
-  const hbEntered = hb.notAvailable || (hb.value !== "" && !isNaN(hbVal!));
-  const mcvEntered = mcv.notAvailable || (mcv.value !== "" && !isNaN(mcvVal!));
-  const ferritinEntered =
-    ferritin.notAvailable || (ferritin.value !== "" && !isNaN(ferritinVal!));
-
-  const reasoning: string[] = [];
-  const caveats: string[] = [];
-
-  if (!hbEntered && !mcvEntered && !ferritinEntered) {
-    return {
-      outcome: null,
-      reasoning: [],
-      caveats: [],
-      referralText: "",
-      verbatimGuideline: "",
-      patientSummary: "",
-      patientScript: "",
-    };
-  }
-
-  const hbThreshold =
-    sex === "male" ? THRESHOLDS.hb.male : THRESHOLDS.hb.female;
-  const ferritinThreshold =
-    sex === "male" ? THRESHOLDS.ferritin.male : THRESHOLDS.ferritin.female;
-
-  // ── Hb interpretation ──
-  let anaemia: boolean | null = null;
-  if (hb.notAvailable) {
-    caveats.push(
-      `⚠️ Hb not available — if Hb is below ${hbThreshold} g/L, anaemia would be confirmed. This could change the referral recommendation.`
-    );
-  } else if (hbVal !== null) {
-    anaemia = hbVal < hbThreshold;
-    reasoning.push(
-      `Hb is ${hbVal} g/L, which is ${anaemia ? "below" : "at or above"} the anaemia threshold of ${hbThreshold} g/L for ${sex === "male" ? "males" : "females"}, ${anaemia ? "confirming anaemia" : "so anaemia is not present by this criterion"}.`
-    );
-  }
-
-  // ── MCV interpretation ──
-  let microcytic: boolean | null = null;
-  let macrocytic: boolean | null = null;
-  if (mcv.notAvailable) {
-    caveats.push(
-      `⚠️ MCV not available — MCV is needed to classify anaemia type (microcytic <${THRESHOLDS.mcv.low} fL, normocytic, or macrocytic >${THRESHOLDS.mcv.high} fL). This could affect the investigation pathway.`
-    );
-  } else if (mcvVal !== null) {
-    microcytic = mcvVal < THRESHOLDS.mcv.low;
-    macrocytic = mcvVal > THRESHOLDS.mcv.high;
-    const mcvLabel = microcytic
-      ? "microcytic"
-      : macrocytic
-        ? "macrocytic"
-        : "normocytic";
-    reasoning.push(
-      `MCV is ${mcvVal} fL (${mcvLabel} — reference range ${THRESHOLDS.mcv.low}–${THRESHOLDS.mcv.high} fL)${microcytic ? ", indicating microcytic anaemia consistent with iron deficiency or thalassaemia trait" : macrocytic ? ", suggesting B12/folate deficiency, alcohol, hypothyroidism, or liver disease" : ", within the normal range"}.`
-    );
-  }
-
-  // ── Ferritin interpretation ──
-  let ironDeficient: boolean | null = null;
-  if (ferritin.notAvailable) {
-    caveats.push(
-      `⚠️ Ferritin not available — ferritin is the primary test for iron deficiency (threshold ${ferritinThreshold} µg/L for ${sex === "male" ? "males" : "females"}). Without this, iron deficiency cannot be confirmed or excluded.`
-    );
-  } else if (ferritinVal !== null) {
-    ironDeficient = ferritinVal < ferritinThreshold;
-    reasoning.push(
-      `Ferritin is ${ferritinVal} µg/L${ironDeficient ? `, confirming iron deficiency (below the threshold of ${ferritinThreshold} µg/L for ${sex === "male" ? "males" : "females"})` : `, which is within the normal range for ${sex === "male" ? "males" : "females"} (threshold ${ferritinThreshold} µg/L), making primary iron deficiency unlikely`}.`
-    );
-  }
-
-  // ── Outcome logic ──
-  // Outcome C: Hb normal — primary care investigation
-  if (anaemia === false) {
-    if (ironDeficient === true) {
-      reasoning.push(
-        "Although Hb is normal, ferritin is low — this represents non-anaemic iron deficiency (NAID), which warrants primary care investigation to identify and treat the underlying cause before anaemia develops."
-      );
-      return buildResult(
-        "C",
-        reasoning,
-        caveats,
-        sex,
-        menopause,
-        giSymptoms,
-        familyHistoryCRC
-      );
-    }
-    reasoning.push(
-      "Hb is normal and there is no confirmed iron deficiency. This does not meet criteria for haematology referral. Consider primary care review of symptoms and repeat testing if clinically indicated."
-    );
-    return buildResult(
-      "C",
-      reasoning,
-      caveats,
-      sex,
-      menopause,
-      giSymptoms,
-      familyHistoryCRC
-    );
-  }
-
-  // Outcome B triggers (regardless of ferritin): male, post-menopausal, or GI symptoms/FH CRC
-  const outcomeBSex = sex === "male" || menopause === "post";
-  const outcomeBSymptoms = giSymptoms || familyHistoryCRC;
-
-  if (anaemia === true) {
-    if (ironDeficient === true || (microcytic === true && ironDeficient === null)) {
-      // Iron deficiency anaemia (confirmed or probable)
-      const idaConfirmed =
-        ironDeficient === true ||
-        (microcytic === true && ferritin.notAvailable);
-
-      if (idaConfirmed) {
-        if (outcomeBSex) {
-          const reason =
-            sex === "male"
-              ? "All men with iron deficiency anaemia require specialist referral for GI investigation, as colorectal cancer or upper GI pathology must be excluded."
-              : "Post-menopausal women with iron deficiency anaemia require specialist referral — unexplained iron deficiency in this group carries the same GI investigation requirement as men.";
-          reasoning.push(reason);
-          return buildResult(
-            "B",
-            reasoning,
-            caveats,
-            sex,
-            menopause,
-            giSymptoms,
-            familyHistoryCRC
-          );
-        }
-        if (outcomeBSymptoms) {
-          reasoning.push(
-            `Pre-menopausal female, but with ${giSymptoms ? "GI symptoms" : ""}${giSymptoms && familyHistoryCRC ? " and " : ""}${familyHistoryCRC ? "family history of colorectal cancer" : ""} — specialist referral is indicated.`
-          );
-          return buildResult(
-            "B",
-            reasoning,
-            caveats,
-            sex,
-            menopause,
-            giSymptoms,
-            familyHistoryCRC
-          );
-        }
-        // Pre-menopausal female, iron deficiency, no red flags
-        reasoning.push(
-          "Pre-menopausal female with iron deficiency anaemia and no GI symptoms or family history of CRC — this pattern is most likely due to menstrual blood loss and meets criteria for routine haematology referral."
-        );
-        return buildResult(
-          "A",
-          reasoning,
-          caveats,
-          sex,
-          menopause,
-          giSymptoms,
-          familyHistoryCRC
-        );
-      }
-    }
-
-    // Anaemia present but iron deficiency not confirmed/excluded
-    if (ferritin.notAvailable && mcv.notAvailable) {
-      reasoning.push(
-        "Anaemia is confirmed but neither MCV nor ferritin is available — the type of anaemia and cause cannot be determined. Further blood tests are required before a referral decision can be made."
-      );
-      return {
-        outcome: "insufficient",
-        reasoning,
-        caveats,
-        referralText:
-          "Further investigation required: request MCV (from FBC) and serum ferritin before applying referral pathway.",
-        verbatimGuideline: VERBATIM_GUIDELINE,
-        patientSummary:
-          "Your blood count shows anaemia (low haemoglobin), but we need more blood test results — specifically an MCV and ferritin — to work out the cause. Your GP or nurse will arrange these.",
-        patientScript:
-          "My blood test shows my haemoglobin is low, which means I have anaemia. I need more blood tests (MCV and ferritin) to find out the type and cause before deciding on next steps.",
-      };
-    }
-
-    // Normocytic/macrocytic anaemia — primary care investigation
-    if (macrocytic === true) {
-      reasoning.push(
-        "Macrocytic anaemia (raised MCV) is present. This is most commonly caused by B12 or folate deficiency, alcohol excess, hypothyroidism, or liver disease — these should be investigated in primary care before referral."
-      );
-    } else if (microcytic === false && macrocytic === false) {
-      reasoning.push(
-        "Normocytic anaemia is present without confirmed iron deficiency. Causes include anaemia of chronic disease, renal anaemia, and haemolytic anaemias — initial investigation should take place in primary care."
-      );
-    }
-
-    if (outcomeBSex || outcomeBSymptoms) {
-      return buildResult(
-        "B",
-        reasoning,
-        caveats,
-        sex,
-        menopause,
-        giSymptoms,
-        familyHistoryCRC
-      );
-    }
-
-    return buildResult(
-      "C",
-      reasoning,
-      caveats,
-      sex,
-      menopause,
-      giSymptoms,
-      familyHistoryCRC
-    );
-  }
-
-  // Hb not available — partial result
-  if (ironDeficient === true) {
-    caveats.push(
-      "Iron deficiency is confirmed, but without Hb it is not possible to determine whether anaemia is present. If Hb is below threshold, a referral pathway applies."
-    );
-  }
-
-  return {
-    outcome: null,
-    reasoning,
-    caveats,
-    referralText: "",
-    verbatimGuideline: VERBATIM_GUIDELINE,
-    patientSummary: "",
-    patientScript: "",
-  };
-}
-
-function buildResult(
-  outcome: "A" | "B" | "C",
-  reasoning: string[],
-  caveats: string[],
-  sex: Sex,
-  menopause: MenopauseStatus,
-  giSymptoms: boolean,
-  familyHistoryCRC: boolean
-): SynthesisResult {
-  const outcomeConfig = {
-    A: {
-      referralText:
-        "Routine referral to haematology. Timeframe: within 6 weeks (non-urgent). Referral for pre-menopausal female with iron deficiency anaemia, no GI symptoms, and no family history of colorectal cancer.",
-      patientSummary:
-        "Your blood tests show iron deficiency anaemia — your haemoglobin (the protein that carries oxygen) is low, and your iron stores (ferritin) are depleted. The guideline recommends a routine referral to a haematology (blood specialist) clinic, which usually happens within 6 weeks. This is a non-urgent referral.",
-      patientScript:
-        "My blood tests show I have iron deficiency anaemia — my haemoglobin is low and my iron stores are low. The guideline says I should have a routine referral to haematology. Can you arrange that for me, please?",
-    },
-    B: {
-      referralText: `Specialist referral required — gastroenterology, gynaecology, or urology as appropriate. Reason: ${sex === "male" ? "male patient (all men with iron deficiency anaemia require GI investigation)" : menopause === "post" ? "post-menopausal female (requires same GI workup as men)" : `pre-menopausal female with ${giSymptoms ? "GI symptoms" : ""}${giSymptoms && familyHistoryCRC ? " and " : ""}${familyHistoryCRC ? "family history of CRC" : ""}`}. Timeframe: discuss with secondary care — may require urgent 2-week-wait referral if red flag symptoms present.`,
-      patientSummary:
-        "Your blood tests show iron deficiency anaemia. Because of your specific circumstances, the guideline says you need a specialist referral — to a gastroenterologist (gut specialist), gynaecologist, or urologist — to investigate the reason why you are losing iron. This is to make sure there is no underlying cause that needs to be treated urgently.",
-      patientScript:
-        "My blood tests show iron deficiency anaemia. The guideline says I need a specialist referral to investigate the cause — either to gastroenterology, gynaecology, or urology. Can you arrange the appropriate referral for me, please?",
-    },
-    C: {
-      referralText:
-        "Primary care investigation. No referral to haematology indicated at this stage. Investigate and manage the underlying cause in primary care. Consider: dietary assessment, medication review, repeat bloods in 4–6 weeks, and treat reversible causes before reassessing.",
-      patientSummary:
-        "Your blood test results do not meet the criteria for a specialist referral right now. Your GP or nurse will investigate and manage any findings in the community — this might include dietary advice, checking other blood results, or starting iron supplements if appropriate.",
-      patientScript:
-        "My blood test results have been checked against the guideline and I don't need a specialist referral at the moment. Can you let me know what the next steps are in primary care, please?",
-    },
-  };
-
-  return {
-    outcome,
-    reasoning,
-    caveats,
-    referralText: outcomeConfig[outcome].referralText,
-    verbatimGuideline: VERBATIM_GUIDELINE,
-    patientSummary: outcomeConfig[outcome].patientSummary,
-    patientScript: outcomeConfig[outcome].patientScript,
-  };
-}
-
-const VERBATIM_GUIDELINE = `NWL ICB Anaemia Pathway (V1, 9 July 2020) — NW London Haematology Clinical Reference Group
-
-Thresholds:
-• Anaemia: Hb <130 g/L (male) / <114 g/L (female)
-• Microcytic MCV: <83.5 fL
-• Iron deficiency ferritin: <20 µg/L (male) / <10 µg/L (female)
-
-Outcome A — Routine referral to haematology:
-Pre-menopausal female with iron deficiency anaemia (confirmed low Hb + low ferritin ± low MCV), no GI symptoms, no family history of colorectal cancer.
-
-Outcome B — Specialist referral (gastroenterology/gynaecology/urology):
-• All men with iron deficiency anaemia
-• Post-menopausal women with iron deficiency anaemia
-• Pre-menopausal women with GI symptoms or family history of colorectal cancer
-• Note: urgency of referral depends on clinical context — 2WW referral if red flag symptoms
-
-Outcome C — Primary care investigation:
-• Normal Hb (anaemia not confirmed)
-• Non-anaemic iron deficiency (normal Hb, low ferritin)
-• Macrocytic anaemia — investigate B12, folate, TFTs, alcohol, LFTs
-• Normocytic anaemia — investigate chronic disease, renal function, haemolysis`;
-
-// ─── COMPONENT ───────────────────────────────────────────────────────────────
-export const Route = createFileRoute("/pathway/anaemia")({
-  component: AnaemiaPathway,
+const anaemiaSearchSchema = z.object({
+  age: z.string().optional(),
+  hb: z.string().optional(),
+  mcv: z.string().optional(),
+  ferritin: z.string().optional(),
 });
 
-function FieldInput({
+export const Route = createFileRoute("/pathway/anaemia")({
+  validateSearch: anaemiaSearchSchema,
+  component: AnaemiaPathwayPage,
+});
+
+function parseNumber(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function resolveMcvBranch(form: NclAnaemiaFormState): NclAnaemiaMcvBranch {
+  if (form.mcvBranch !== "unknown") {
+    return form.mcvBranch;
+  }
+
+  const mcv = parseNumber(form.mcv);
+  if (mcv === null) {
+    return "unknown";
+  }
+
+  if (mcv < 80) return "microcytic";
+  if (mcv <= 100) return "normocytic";
+  return "macrocytic";
+}
+
+function resolveReticulocyteBranch(form: NclAnaemiaFormState): NclAnaemiaReticBranch {
+  if (form.reticulocyteBranch !== "unknown") {
+    return form.reticulocyteBranch;
+  }
+
+  const reticulocytes = parseNumber(form.reticulocytes);
+  if (reticulocytes === null) {
+    return "unknown";
+  }
+
+  return reticulocytes < 80 ? "low" : "high";
+}
+
+type InputFieldConfig = {
+  key: keyof NclAnaemiaFormState;
+  label: string;
+  helper: string;
+};
+
+type NextNeed = {
+  title: string;
+  detail: string;
+};
+
+type ResultStatusCard = {
+  label: string;
+  statusLabel: string;
+  detail: string;
+};
+
+const ANAEMIA_BASE_FIELDS: InputFieldConfig[] = [
+  { key: "hb", label: "Hb (g/L)", helper: "Needed to know whether this enters the anaemia pathway." },
+  { key: "ferritin", label: "Ferritin (mcg/L)", helper: "Useful if iron deficiency is suspected." },
+  { key: "mcv", label: "MCV (fL)", helper: "MCV splits the pathway into microcytic, normocytic, and macrocytic anaemia." },
+  { key: "age", label: "Age", helper: "Needed for the urgent GI wording in iron deficiency anaemia." },
+];
+
+const ANAEMIA_MICROCYTIC_FIELDS: InputFieldConfig[] = [
+  { key: "crp", label: "CRP (mg/L)", helper: "Needed if ferritin is 30-150 mcg/L." },
+  { key: "serumIron", label: "Iron (umol/L)", helper: "Needed if ferritin is 30-150 mcg/L." },
+  { key: "transferrinSaturation", label: "Iron saturation (%)", helper: "Needed if ferritin is 30-150 mcg/L." },
+  { key: "tibc", label: "TIBC (umol/L)", helper: "Needed if ferritin is 30-150 mcg/L." },
+];
+
+const ANAEMIA_RETIC_FIELD: InputFieldConfig = {
+  key: "reticulocytes",
+  label: "Reticulocytes (x10^9/L)",
+  helper: "Needed in normocytic and macrocytic branches.",
+};
+
+const ANAEMIA_MACRO_FIELDS: InputFieldConfig[] = [
+  { key: "b12", label: "B12 (ng/L)", helper: "Needed in the macrocytic pathway." },
+  { key: "folate", label: "Folate (ug/L)", helper: "Needed in the macrocytic pathway." },
+];
+
+const ANAEMIA_REFERENCE_INPUTS: Partial<Record<keyof NclAnaemiaFormState, string>> = {
+  hb: "hb",
+  mcv: "mcv",
+  ferritin: "ferritin",
+  serumIron: "serum_iron",
+  tibc: "tibc",
+  transferrinSaturation: "transferrin_saturation",
+  crp: "crp",
+  reticulocytes: "reticulocytes",
+  b12: "b12",
+  folate: "folate",
+};
+
+function getVisibleAnaemiaFields(
+  resolvedMcvBranch: NclAnaemiaMcvBranch,
+  resolvedReticulocyteBranch: NclAnaemiaReticBranch
+) {
+  const fields = [...ANAEMIA_BASE_FIELDS];
+
+  if (resolvedMcvBranch === "microcytic") {
+    fields.push(...ANAEMIA_MICROCYTIC_FIELDS);
+  }
+
+  if (resolvedMcvBranch === "normocytic" || resolvedMcvBranch === "macrocytic") {
+    fields.push(ANAEMIA_RETIC_FIELD);
+  }
+
+  if (resolvedMcvBranch === "macrocytic" && resolvedReticulocyteBranch !== "high") {
+    fields.push(...ANAEMIA_MACRO_FIELDS);
+  }
+
+  return fields;
+}
+
+function getAnaemiaNextNeeds(
+  form: NclAnaemiaFormState,
+  resolvedMcvBranch: NclAnaemiaMcvBranch,
+  resolvedReticulocyteBranch: NclAnaemiaReticBranch
+): NextNeed[] {
+  const needs: NextNeed[] = [];
+  const hb = parseNumber(form.hb);
+  const ferritin = parseNumber(form.ferritin);
+
+  if (hb === null) {
+    needs.push({
+      title: "Add haemoglobin",
+      detail: "This pathway only starts if Hb is below 110 g/L.",
+    });
+    return needs;
+  }
+
+  if (hb >= 110) {
+    needs.push({
+      title: "Anaemia threshold not met",
+      detail: "With Hb 110 g/L or above, this anaemia pathway does not open.",
+    });
+    return needs;
+  }
+
+  if (resolvedMcvBranch === "unknown") {
+    needs.push({
+      title: "Add MCV",
+      detail: "MCV is needed to split the route into microcytic, normocytic, or macrocytic anaemia.",
+    });
+  }
+
+  if (ferritin === null) {
+    needs.push({
+      title: "Add ferritin",
+      detail: "Ferritin is assessed in all anaemia cases in this pathway.",
+    });
+  }
+
+  if (resolvedMcvBranch === "microcytic" && ferritin !== null && ferritin >= 30 && ferritin <= 150) {
+    if (form.noKnownInflammatoryStates === "unknown") {
+      needs.push({
+        title: "Confirm inflammatory-state status",
+        detail: "This ferritin 30-150 branch is specifically for patients with no known inflammatory states.",
+      });
+    }
+
+    for (const field of ANAEMIA_MICROCYTIC_FIELDS) {
+      if (!String(form[field.key] ?? "").trim()) {
+        needs.push({
+          title: `Add ${field.label}`,
+          detail: field.helper,
+        });
+      }
+    }
+  }
+
+  if ((resolvedMcvBranch === "normocytic" || resolvedMcvBranch === "macrocytic") && resolvedReticulocyteBranch === "unknown") {
+    needs.push({
+      title: "Add reticulocytes",
+      detail: "The next split uses reticulocyte count below or above 80 x10^9/L / 2%.",
+    });
+  }
+
+  if (resolvedMcvBranch === "normocytic" && form.pancytopenia === "unknown") {
+    needs.push({
+      title: "Confirm whether pancytopenia is present",
+      detail: "Pancytopenia needs explicit clinician confirmation.",
+    });
+  }
+
+  if (resolvedMcvBranch === "macrocytic" && resolvedReticulocyteBranch !== "high") {
+    if (!form.b12.trim()) {
+      needs.push({
+        title: "Add B12",
+        detail: "The macrocytic pathway next checks whether B12 is below or above 170 ng/L.",
+      });
+    }
+
+    if (!form.folate.trim()) {
+      needs.push({
+        title: "Add folate",
+        detail: "The macrocytic pathway next checks folate thresholds and symptoms.",
+      });
+    }
+  }
+
+  return needs;
+}
+
+function getAnaemiaSuggestion(
+  resultHeadline: string,
+  resolvedMcvBranch: NclAnaemiaMcvBranch,
+  mode: "patient" | "clinician"
+) {
+  if (resultHeadline === "Urgent / admission branch") {
+    return mode === "patient"
+      ? "These results suggest anaemia that needs urgent medical review."
+      : "Possible picture: urgent anaemia requiring same-day assessment or urgent referral.";
+  }
+
+  if (resultHeadline === "Iron deficiency anaemia") {
+    return mode === "patient"
+      ? "These results suggest iron deficiency anaemia."
+      : "Possible diagnosis: iron deficiency anaemia.";
+  }
+
+  if (resolvedMcvBranch === "microcytic") {
+    return mode === "patient"
+      ? "These results suggest a microcytic anaemia pattern."
+      : "Possible picture: microcytic anaemia.";
+  }
+
+  if (resolvedMcvBranch === "normocytic") {
+    return mode === "patient"
+      ? "These results suggest a normocytic anaemia pattern."
+      : "Possible picture: normocytic anaemia.";
+  }
+
+  if (resolvedMcvBranch === "macrocytic") {
+    return mode === "patient"
+      ? "These results suggest a macrocytic anaemia pattern."
+      : "Possible picture: macrocytic anaemia.";
+  }
+
+  return mode === "patient"
+    ? "More results are needed before the pathway can suggest what this anaemia pattern may represent."
+    : "More results are needed before a likely anaemia picture can be confirmed.";
+}
+
+function getPatientDiscussionPrompt(result: ReturnType<typeof computeNclAnaemiaResult>) {
+  switch (result.outcomeCode) {
+    case "urgent_admission":
+    case "urgent_referral":
+      return "The pathway suggests urgent review. Is this something I should discuss with my doctor today?";
+    case "start_treatment":
+      return "The pathway suggests treatment may be needed. What treatment or follow-up should I discuss with my doctor?";
+    case "request_more_tests":
+      return "The pathway needs more information. Which blood tests or checks are needed next?";
+    default:
+      return "What is the next step from this pathway for me to discuss with my doctor?";
+  }
+}
+
+function getAnaemiaManagementIntro(mode: "patient" | "clinician") {
+  return mode === "patient"
+    ? "This is the current plan suggested by the pathway from the results entered so far."
+    : "This is the current management plan from the pathway based on the results entered so far.";
+}
+
+function getAnaemiaFollowUpIntro(mode: "patient" | "clinician") {
+  return mode === "patient"
+    ? "These are the next tests, checks, or follow-up steps the pathway still needs."
+    : "These are the further tests, checks, or follow-up steps the pathway still requires.";
+}
+
+function ToggleRow({
+  checked,
   label,
-  unit,
-  hint,
-  field,
   onChange,
 }: {
+  checked: boolean;
   label: string;
-  unit: string;
-  hint: string;
-  field: FieldState;
-  onChange: (f: FieldState) => void;
+  onChange: (next: boolean) => void;
 }) {
   return (
-    <div
-      className={`rounded-xl border-2 p-4 transition-all ${
-        field.notAvailable
-          ? "border-amber-200 bg-amber-50"
-          : "border-slate-200 bg-white focus-within:border-blue-400"
+    <label
+      className={`flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-all ${
+        checked ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"
       }`}
     >
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div>
-          <span className="text-sm font-semibold text-slate-700">{label}</span>
-          <span className="ml-2 text-xs text-slate-400">{hint}</span>
-        </div>
-        <button
-          type="button"
-          onClick={() =>
-            onChange({ ...field, notAvailable: !field.notAvailable, value: "" })
-          }
-          className={`text-xs px-2 py-1 rounded-md font-medium transition-colors flex-shrink-0 ${
-            field.notAvailable
-              ? "bg-amber-200 text-amber-800 hover:bg-amber-300"
-              : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-          }`}
-        >
-          {field.notAvailable ? "✓ Not available" : "Not available →"}
-        </button>
-      </div>
-      {field.notAvailable ? (
-        <div className="text-sm text-amber-700 italic py-1">
-          Marked as not tested — result will be treated as absent
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            step="0.1"
-            value={field.value}
-            onChange={(e) => onChange({ ...field, value: e.target.value })}
-            placeholder="Enter value"
-            className="flex-1 text-lg font-mono rounded-lg border border-slate-200 px-3 py-2 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-          />
-          <span className="text-sm text-slate-500 font-medium">{unit}</span>
-        </div>
-      )}
-    </div>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-1"
+      />
+      <span className="text-sm text-slate-700 leading-relaxed">{label}</span>
+    </label>
   );
 }
 
-function OutcomeBadge({ outcome }: { outcome: SynthesisResult["outcome"] }) {
-  if (!outcome) return null;
-  const config = {
-    A: {
-      label: "Outcome A",
-      desc: "Routine haematology referral",
-      color: "bg-blue-100 text-blue-800 border-blue-200",
-      dot: "bg-blue-500",
-    },
-    B: {
-      label: "Outcome B",
-      desc: "Specialist referral — gastro/gynae/urology",
-      color: "bg-orange-100 text-orange-800 border-orange-200",
-      dot: "bg-orange-500",
-    },
-    C: {
-      label: "Outcome C",
-      desc: "Primary care investigation",
-      color: "bg-green-100 text-green-800 border-green-200",
-      dot: "bg-green-500",
-    },
-    insufficient: {
-      label: "More results needed",
-      desc: "Cannot determine pathway",
-      color: "bg-slate-100 text-slate-700 border-slate-200",
-      dot: "bg-slate-400",
-    },
-  };
-  const c = config[outcome];
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  options: Array<{ value: string; label: string }>;
+  hint?: string;
+}) {
   return (
-    <div
-      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-semibold ${c.color}`}
-    >
-      <span className={`w-2 h-2 rounded-full ${c.dot}`} />
-      {c.label} — {c.desc}
-    </div>
+    <label className="block">
+      <span className="block text-sm font-semibold text-slate-700 mb-2">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {hint ? <p className="mt-2 text-xs text-slate-500">{hint}</p> : null}
+    </label>
   );
 }
 
-function AnaemiaPathway() {
-  const navigate = useNavigate();
+function ChoiceField({
+  label,
+  value,
+  onChange,
+  yesLabel,
+  noLabel,
+  hint,
+}: {
+  label: string;
+  value: NclAnaemiaExplicitChoice;
+  onChange: (next: NclAnaemiaExplicitChoice) => void;
+  yesLabel: string;
+  noLabel: string;
+  hint?: string;
+}) {
+  return (
+    <SelectField
+      label={label}
+      value={value}
+      onChange={(next) => onChange(next as NclAnaemiaExplicitChoice)}
+      hint={hint}
+      options={[
+        { value: "unknown", label: "Not yet selected" },
+        { value: "yes", label: yesLabel },
+        { value: "no", label: noLabel },
+      ]}
+    />
+  );
+}
 
-  const [form, setForm] = useState<FormState>({
-    sex: "female",
-    menopause: "pre",
-    hb: { value: "", notAvailable: false },
-    mcv: { value: "", notAvailable: false },
-    ferritin: { value: "", notAvailable: false },
-    giSymptoms: false,
-    familyHistoryCRC: false,
-  });
+export function AnaemiaPathwayPage() {
+  const { mode } = useMode();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const [form, setForm] = useState<NclAnaemiaFormState>(DEFAULT_NCL_ANAEMIA_FORM);
+  const [referenceSex, setReferenceSex] = useState<ReferenceSex>("female");
+  const [hasAnalysed, setHasAnalysed] = useState(false);
 
-  const result = synthesise(form);
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      age: search.age ?? current.age,
+      hb: search.hb ?? current.hb,
+      mcv: search.mcv ?? current.mcv,
+      ferritin: search.ferritin ?? current.ferritin,
+    }));
+    setHasAnalysed(false);
+  }, [search.age, search.hb, search.mcv, search.ferritin]);
 
-  const handleViewResults = useCallback(() => {
-    const params = new URLSearchParams({
-      pathway: "anaemia",
-      sex: form.sex,
-      menopause: form.menopause,
-      hbValue: form.hb.value,
-      hbNA: form.hb.notAvailable ? "1" : "0",
-      mcvValue: form.mcv.value,
-      mcvNA: form.mcv.notAvailable ? "1" : "0",
-      ferritinValue: form.ferritin.value,
-      ferritinNA: form.ferritin.notAvailable ? "1" : "0",
-      giSymptoms: form.giSymptoms ? "1" : "0",
-      familyHistoryCRC: form.familyHistoryCRC ? "1" : "0",
-    });
-    navigate({ to: "/results", search: Object.fromEntries(params) as never });
-  }, [form, navigate]);
+  const result = useMemo(() => computeNclAnaemiaResult(form), [form]);
+  const resolvedMcvBranch = resolveMcvBranch(form);
+  const resolvedReticulocyteBranch = resolveReticulocyteBranch(form);
+  const visibleFields = getVisibleAnaemiaFields(resolvedMcvBranch, resolvedReticulocyteBranch);
+  const nextNeeds = getAnaemiaNextNeeds(form, resolvedMcvBranch, resolvedReticulocyteBranch);
+  const priorityCodes = extractPathwayPriorityCodes(result.boxes);
+  const resultStatusCards = visibleFields
+    .filter((field) => String(form[field.key] ?? "").trim())
+    .map((field) => {
+      const inputId = ANAEMIA_REFERENCE_INPUTS[field.key];
+      if (!inputId) return null;
+      const input = LIVE_PATHWAY_INPUTS.find((entry) => entry.id === inputId);
+      if (!input) return null;
+      const assessment = assessReference(input, String(form[field.key] ?? ""), referenceSex);
+      return {
+        label: input.label,
+        statusLabel: assessment.label,
+        detail: assessment.detail,
+      } satisfies ResultStatusCard;
+    })
+    .filter(Boolean) as ResultStatusCard[];
 
-  const hasAnyInput =
-    form.hb.notAvailable ||
-    form.hb.value !== "" ||
-    form.mcv.notAvailable ||
-    form.mcv.value !== "" ||
-    form.ferritin.notAvailable ||
-    form.ferritin.value !== "";
+  const updateForm = (updater: (current: NclAnaemiaFormState) => NclAnaemiaFormState) => {
+    setHasAnalysed(false);
+    setForm((current) => updater(current));
+  };
+
+  const resetCalculator = () => {
+    setForm(DEFAULT_NCL_ANAEMIA_FORM);
+    setReferenceSex("female");
+    setHasAnalysed(false);
+    navigate({ to: "/pathway/anaemia", search: {} });
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
       <div className="bg-white border-b border-slate-200">
-        <div className="max-w-2xl mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate({ to: "/pathways" })}
-              className="text-slate-400 hover:text-slate-600 transition-colors"
+        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-6">
+          <span className="inline-flex rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
+            {mode === "patient" ? "Patient view" : "Clinician view"}
+          </span>
+          <h1 className="mt-3 text-3xl sm:text-4xl font-semibold tracking-tight text-slate-900">
+            Adult Anaemia Pathway
+          </h1>
+          <p className="mt-3 max-w-4xl text-sm sm:text-base text-slate-600 leading-relaxed">
+            {mode === "patient"
+              ? "Enter one or more blood results, then click Enter / Analyse to see what this may mean, what the current plan is, and what to discuss with your doctor."
+              : "Enter one or more blood results, then click Enter / Analyse to see the likely picture, the management plan, and the follow-up needed."}
+          </p>
+          <p className="mt-3 text-xs text-slate-500">
+            {NCL_ANAEMIA_SOURCE_META.organisation} · {NCL_ANAEMIA_SOURCE_META.title} ·{" "}
+            {NCL_ANAEMIA_SOURCE_META.version}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link
+              to="/pathways"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
             >
-              ←
+              <span aria-hidden>←</span>
+              Back to pathways
+            </Link>
+            <button
+              type="button"
+              onClick={resetCalculator}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+            >
+              Reset calculator
             </button>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg">🩸</span>
-                <h1 className="text-lg font-bold text-slate-900">
-                  Anaemia Pathway
-                </h1>
-              </div>
-              <p className="text-xs text-slate-500">
-                NWL ICB · Haematology CRG · V1 9/7/20
-              </p>
-            </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
-        {/* Sex / Menopause */}
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
-          <h2 className="font-semibold text-slate-800 text-sm uppercase tracking-wide">
-            Patient context
-          </h2>
-          <div className="grid grid-cols-2 gap-3">
-            {(["male", "female"] as Sex[]).map((s) => (
-              <button
-                key={s}
-                onClick={() => setForm((f) => ({ ...f, sex: s }))}
-                className={`py-3 rounded-lg border-2 font-semibold capitalize transition-all ${
-                  form.sex === s
-                    ? "border-blue-500 bg-blue-50 text-blue-700"
-                    : "border-slate-200 text-slate-600 hover:border-slate-300"
-                }`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-          {form.sex === "female" && (
-            <div>
-              <p className="text-xs text-slate-500 mb-2">Menopausal status</p>
-              <div className="grid grid-cols-2 gap-3">
-                {(["pre", "post"] as MenopauseStatus[]).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setForm((f) => ({ ...f, menopause: m }))}
-                    className={`py-2.5 rounded-lg border-2 font-medium text-sm capitalize transition-all ${
-                      form.menopause === m
-                        ? "border-blue-500 bg-blue-50 text-blue-700"
-                        : "border-slate-200 text-slate-600 hover:border-slate-300"
-                    }`}
-                  >
-                    {m === "pre" ? "Pre-menopausal" : "Post-menopausal"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {/* Clinical context flags */}
-          <div className="space-y-2 pt-1">
-            <p className="text-xs text-slate-500">Clinical context</p>
-            {[
-              {
-                key: "giSymptoms" as const,
-                label: "GI symptoms present",
-                sub: "e.g. rectal bleeding, altered bowel habit, dysphagia",
-              },
-              {
-                key: "familyHistoryCRC" as const,
-                label: "Family history of colorectal cancer",
-                sub: "First-degree relative",
-              },
-            ].map(({ key, label, sub }) => (
-              <label
-                key={key}
-                className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                  form[key]
-                    ? "border-orange-300 bg-orange-50"
-                    : "border-slate-200 hover:border-slate-300"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={form[key]}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, [key]: e.target.checked }))
-                  }
-                  className="mt-0.5"
-                />
-                <div>
-                  <div className="text-sm font-medium text-slate-800">
-                    {label}
-                  </div>
-                  <div className="text-xs text-slate-500">{sub}</div>
-                </div>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        {/* Blood results */}
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-slate-800 text-sm uppercase tracking-wide">
-              Blood results
+      <div className="max-w-6xl mx-auto px-5 sm:px-8 py-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Enter results
             </h2>
-            <span className="text-xs text-slate-400">
-              Enter what you have — fill any or all fields
-            </span>
-          </div>
-          <FieldInput
-            label="Haemoglobin (Hb)"
-            unit="g/L"
-            hint={`Anaemia: <${form.sex === "male" ? THRESHOLDS.hb.male : THRESHOLDS.hb.female} g/L`}
-            field={form.hb}
-            onChange={(f) => setForm((s) => ({ ...s, hb: f }))}
-          />
-          <FieldInput
-            label="Mean Cell Volume (MCV)"
-            unit="fL"
-            hint={`Microcytic: <${THRESHOLDS.mcv.low} fL`}
-            field={form.mcv}
-            onChange={(f) => setForm((s) => ({ ...s, mcv: f }))}
-          />
-          <FieldInput
-            label="Ferritin"
-            unit="µg/L"
-            hint={`Iron def: <${form.sex === "male" ? THRESHOLDS.ferritin.male : THRESHOLDS.ferritin.female} µg/L`}
-            field={form.ferritin}
-            onChange={(f) => setForm((s) => ({ ...s, ferritin: f }))}
-          />
-        </div>
-
-        {/* Live synthesis panel */}
-        {hasAnyInput && (
-          <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-slate-800 text-sm uppercase tracking-wide">
-                Live interpretation
-              </h2>
-              {result.outcome && <OutcomeBadge outcome={result.outcome} />}
+            <p className="mt-2 text-sm text-slate-600">
+              Start with the blood results you already have from the report.
+            </p>
+            <div className="mt-4 max-w-xs">
+              <SelectField
+                label="Reference sex for normal ranges"
+                value={referenceSex}
+                onChange={(next) => {
+                  setHasAnalysed(false);
+                  setReferenceSex(next as ReferenceSex);
+                }}
+                options={[
+                  { value: "female", label: "Female reference ranges" },
+                  { value: "male", label: "Male reference ranges" },
+                ]}
+              />
             </div>
-
-            {result.reasoning.length > 0 && (
-              <div className="text-sm text-slate-700 leading-relaxed space-y-1">
-                {result.reasoning.map((r, i) => (
-                  <p key={i}>{r}</p>
-                ))}
-              </div>
-            )}
-
-            {result.caveats.length > 0 && (
-              <div className="space-y-1.5">
-                {result.caveats.map((c, i) => (
-                  <div
-                    key={i}
-                    className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2"
-                  >
-                    {c}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {result.referralText && (
-              <div className="bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-700 border border-slate-200">
-                <span className="font-semibold">Recommended action: </span>
-                {result.referralText}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Actions */}
-        {result.outcome && result.outcome !== "insufficient" && (
-          <button
-            onClick={handleViewResults}
-            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold rounded-xl transition-colors shadow-sm"
-          >
-            View full results page →
-          </button>
-        )}
-
-        {/* Guideline footer */}
-        <div className="text-center space-y-1 pb-4">
-          <p className="text-xs text-slate-400">
-            Source: NWL ICB Haematology CRG, V1 9/7/20
-          </p>
-          <div className="flex items-center justify-center gap-3">
-            <a
-              href={FLOWSHEET_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-blue-500 hover:text-blue-700 underline"
+            <div className="grid gap-4 md:grid-cols-2 mt-5">
+              {visibleFields.map(({ key, label, helper }) => (
+                <label key={key} className="block">
+                  <span className="block text-sm font-semibold text-slate-700 mb-2">{label}</span>
+                  <input
+                    type="number"
+                    value={form[key] as string}
+                    onChange={(e) =>
+                      updateForm((current) => ({
+                        ...current,
+                        [key]: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700"
+                  />
+                  <p className="mt-2 text-xs leading-relaxed text-slate-500">{helper}</p>
+                </label>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setHasAnalysed(true)}
+              className="mt-6 inline-flex items-center gap-2 rounded-[12px] bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
             >
-              Download anaemia flowsheet PDF ↗
-            </a>
-            <span className="text-slate-300">·</span>
-            <a
-              href={GUIDELINE_PAGE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-blue-500 hover:text-blue-700 underline"
-            >
-              NWL haematology guidelines ↗
-            </a>
+              Enter / Analyse
+            </button>
           </div>
-        </div>
+
+          {mode === "clinician" && (
+            <details className="bg-white rounded-2xl border border-slate-200 p-5">
+              <summary className="cursor-pointer list-none text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Primary care checklist
+              </summary>
+              <ul className="mt-4 space-y-3 text-sm text-slate-700 leading-relaxed">
+                {NCL_ANAEMIA_PRIMARY_CARE_ASSESSMENT.map((item) => (
+                  <li key={item} className="flex gap-3">
+                    <span className="text-blue-600">•</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {mode === "clinician" && (
+            <details className="bg-white rounded-2xl border border-slate-200 p-5">
+              <summary className="cursor-pointer list-none text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Urgent clinician checks
+              </summary>
+              <div className="grid gap-3 mt-5">
+                <ToggleRow
+                  checked={form.verySymptomatic}
+                  onChange={(next) => updateForm((current) => ({ ...current, verySymptomatic: next }))}
+                  label="Very symptomatic."
+                />
+                <ToggleRow
+                  checked={form.leukoerythroblasticBloodFilm}
+                  onChange={(next) =>
+                    updateForm((current) => ({ ...current, leukoerythroblasticBloodFilm: next }))
+                  }
+                  label="Leukoerythroblastic anaemia on blood film."
+                />
+                <ToggleRow
+                  checked={form.unexplainedProgressiveSymptomaticAnaemia}
+                  onChange={(next) =>
+                    updateForm((current) => ({
+                      ...current,
+                      unexplainedProgressiveSymptomaticAnaemia: next,
+                    }))
+                  }
+                  label="Unexplained progressive symptomatic anaemia."
+                />
+                <ToggleRow
+                  checked={form.splenomegalyLymphadenopathyOtherCytopenias}
+                  onChange={(next) =>
+                    updateForm((current) => ({
+                      ...current,
+                      splenomegalyLymphadenopathyOtherCytopenias: next,
+                    }))
+                  }
+                  label="Associated splenomegaly, lymphadenopathy and other cytopenias."
+                />
+                <ToggleRow
+                  checked={form.suspectedHaematologicalMalignancyOrBloodDisorder}
+                  onChange={(next) =>
+                    updateForm((current) => ({
+                      ...current,
+                      suspectedHaematologicalMalignancyOrBloodDisorder: next,
+                    }))
+                  }
+                  label="Suspected haematological malignancy or other blood disorder."
+                />
+                <ToggleRow
+                  checked={form.acuteGiBleeding}
+                  onChange={(next) => updateForm((current) => ({ ...current, acuteGiBleeding: next }))}
+                  label="Acute GI bleeding."
+                />
+                <ToggleRow
+                  checked={form.rectalBleeding}
+                  onChange={(next) => updateForm((current) => ({ ...current, rectalBleeding: next }))}
+                  label="Rectal bleeding."
+                />
+              </div>
+            </details>
+          )}
+
+          {mode === "clinician" && (
+            <details className="bg-white rounded-2xl border border-slate-200 p-5 space-y-5">
+              <summary className="cursor-pointer list-none text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Clinician-only branch details
+              </summary>
+
+              <SelectField
+                label="MCV branch"
+                value={form.mcvBranch}
+                onChange={(next) =>
+                  updateForm((current) => ({
+                    ...current,
+                    mcvBranch: next as NclAnaemiaMcvBranch,
+                  }))
+                }
+                hint="Leave this as not selected to derive the branch from the MCV threshold."
+                options={[
+                  { value: "unknown", label: "Not yet selected" },
+                  { value: "microcytic", label: "MCV <80fl - Microcytic anaemia" },
+                  { value: "normocytic", label: "MCV 80-100fl - Normocytic anaemia" },
+                  { value: "macrocytic", label: "MCV >100fl - Macrocytic anaemia" },
+                ]}
+              />
+
+              {resolvedMcvBranch === "microcytic" && (
+                <ChoiceField
+                  label="Inflammatory-state branch"
+                  value={form.noKnownInflammatoryStates}
+                  onChange={(next) =>
+                    updateForm((current) => ({ ...current, noKnownInflammatoryStates: next }))
+                  }
+                  yesLabel="No known inflammatory states"
+                  noLabel="Known inflammatory state present"
+                />
+              )}
+
+              {resolvedMcvBranch === "normocytic" && (
+                <>
+                  <ChoiceField
+                    label="Pancytopenia"
+                    value={form.pancytopenia}
+                    onChange={(next) =>
+                      updateForm((current) => ({ ...current, pancytopenia: next }))
+                    }
+                    yesLabel="Pancytopenia present"
+                    noLabel="No pancytopenia"
+                  />
+                  {form.pancytopenia !== "yes" && (
+                    <SelectField
+                      label="Reticulocyte branch"
+                      value={form.reticulocyteBranch}
+                      onChange={(next) =>
+                        updateForm((current) => ({
+                          ...current,
+                          reticulocyteBranch: next as NclAnaemiaReticBranch,
+                        }))
+                      }
+                      options={[
+                        { value: "unknown", label: "Not yet selected" },
+                        { value: "low", label: "Reticulocyte count <80x10^9/L / <2%" },
+                        { value: "high", label: "Reticulocyte count >80x10^9/L / >2%" },
+                      ]}
+                    />
+                  )}
+                </>
+              )}
+
+              {resolvedMcvBranch === "macrocytic" && (
+                <>
+                  <SelectField
+                    label="Reticulocyte branch"
+                    value={form.reticulocyteBranch}
+                    onChange={(next) =>
+                      updateForm((current) => ({
+                        ...current,
+                        reticulocyteBranch: next as NclAnaemiaReticBranch,
+                      }))
+                    }
+                    options={[
+                      { value: "unknown", label: "Not yet selected" },
+                      { value: "low", label: "Reticulocyte count <80x10^9/L / <2%" },
+                      { value: "high", label: "Reticulocyte count >80x10^9/L / >2%" },
+                    ]}
+                  />
+                  {resolvedReticulocyteBranch === "low" && (
+                    <>
+                      <ChoiceField
+                        label="Symptoms of B12 / folate deficiency"
+                        value={form.symptomsOfB12OrFolateDeficiency}
+                        onChange={(next) =>
+                          updateForm((current) => ({
+                            ...current,
+                            symptomsOfB12OrFolateDeficiency: next,
+                          }))
+                        }
+                        yesLabel="Symptoms present"
+                        noLabel="Asymptomatic"
+                      />
+                      <ChoiceField
+                        label="Strong clinical suspicion for B12 deficiency"
+                        value={form.strongClinicalSuspicionForB12Deficiency}
+                        onChange={(next) =>
+                          updateForm((current) => ({
+                            ...current,
+                            strongClinicalSuspicionForB12Deficiency: next,
+                          }))
+                        }
+                        yesLabel="Strong index clinical suspicion present"
+                        noLabel="No strong index clinical suspicion"
+                      />
+                    </>
+                  )}
+                </>
+              )}
+            </details>
+          )}
+        </section>
+
+        <aside className="space-y-6">
+          {!hasAnalysed ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-5">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Analyse this pathway
+              </h2>
+              <p className="mt-4 text-sm leading-relaxed text-slate-600">
+                After clicking <span className="font-semibold text-slate-900">Enter / Analyse</span>, this page will show:
+                result status, the likely picture, the management plan, and the follow-up needed.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Result status
+                </h2>
+                <div className="mt-4 grid gap-3">
+                  {resultStatusCards.length === 0 ? (
+                    <p className="text-sm leading-relaxed text-slate-600">
+                      No results have been entered yet.
+                    </p>
+                  ) : (
+                    resultStatusCards.map((card) => (
+                      <div key={`${card.label}-${card.detail}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-900">{card.label}</p>
+                          <span className="rounded-full px-3 py-1 text-xs font-semibold bg-slate-100 text-slate-700">
+                            {card.statusLabel}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-600">{card.detail}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Possible diagnosis / picture
+                </h2>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {priorityCodes.map((code) => (
+                    <span
+                      key={code}
+                      className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700"
+                    >
+                      {code} = {PATHWAY_PRIORITY_LABELS[code]}
+                    </span>
+                  ))}
+                </div>
+                <h3 className="mt-4 text-2xl font-semibold tracking-tight text-slate-900">
+                  {result.headline}
+                </h3>
+                <p className="mt-3 text-sm leading-relaxed text-slate-700">
+                  {getAnaemiaSuggestion(result.headline, resolvedMcvBranch, mode)}
+                </p>
+                {mode === "patient" ? (
+                  <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-700">
+                    <span className="font-semibold text-slate-900">What to ask your clinician:</span>{" "}
+                    {getPatientDiscussionPrompt(result)}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Management plan
+                </h2>
+                <p className="mt-3 text-sm leading-relaxed text-slate-600">
+                  {getAnaemiaManagementIntro(mode)}
+                </p>
+                <ul className="mt-4 space-y-3 text-sm text-slate-700 leading-relaxed">
+                  {result.actions.map((action) => (
+                    <li key={action} className="flex gap-3">
+                      <span className="text-blue-600">•</span>
+                      <span>{action}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Follow-up / further tests
+                </h2>
+                <p className="mt-3 text-sm leading-relaxed text-slate-600">
+                  {getAnaemiaFollowUpIntro(mode)}
+                </p>
+                {nextNeeds.length === 0 ? (
+                  <p className="mt-4 text-sm leading-relaxed text-slate-600">
+                    No further tests are needed to show the current pathway plan at this stage.
+                  </p>
+                ) : (
+                  <ul className="mt-4 space-y-3">
+                    {nextNeeds.map((need) => (
+                      <li key={`${need.title}-${need.detail}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-sm font-semibold text-slate-900">{need.title}</p>
+                        <p className="mt-1 text-sm leading-relaxed text-slate-600">{need.detail}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Review the source
+                </h3>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {NCL_ANAEMIA_SOURCE_META.sourcePageUrl ? (
+                    <a
+                      href={NCL_ANAEMIA_SOURCE_META.sourcePageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                    >
+                      Official haematology page
+                    </a>
+                  ) : null}
+                  {NCL_ANAEMIA_SOURCE_META.sourcePdfUrl ? (
+                    <a
+                      href={NCL_ANAEMIA_SOURCE_META.sourcePdfUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                    >
+                      Official pathway page
+                    </a>
+                  ) : null}
+                </div>
+                <p className="mt-4 text-xs text-slate-500">
+                  {NCL_ANAEMIA_SOURCE_META.organisation} · {NCL_ANAEMIA_SOURCE_META.title} · {NCL_ANAEMIA_SOURCE_META.version}
+                </p>
+              </div>
+            </>
+          )}
+        </aside>
       </div>
     </div>
   );

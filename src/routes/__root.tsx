@@ -36,13 +36,13 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "Interactive NHS clinical pathways. Enter your blood test results and follow the exact NHS guideline logic — built for patients and clinicians.",
+          "Interactive clinician pathways built from published NHS guidance, organised clearly by location and pathway.",
       },
       { property: "og:title", content: "ResultDoctor — Understand your results. Know your next step." },
       { name: "twitter:title", content: "ResultDoctor — Understand your results. Know your next step." },
-      { name: "description", content: "ResultDoctor converts NHS guidelines into interactive tools for patients and clinicians." },
-      { property: "og:description", content: "ResultDoctor converts NHS guidelines into interactive tools for patients and clinicians." },
-      { name: "twitter:description", content: "ResultDoctor converts NHS guidelines into interactive tools for patients and clinicians." },
+      { name: "description", content: "ResultDoctor converts published NHS guidance into interactive clinician pathways." },
+      { property: "og:description", content: "ResultDoctor converts published NHS guidance into interactive clinician pathways." },
+      { name: "twitter:description", content: "ResultDoctor converts published NHS guidance into interactive clinician pathways." },
       { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/99946764-0168-4560-9549-25a9edcc516a/id-preview-6a7f9595--12159e2d-f385-4a40-9017-809b3febdd86.lovable.app-1776717210449.png" },
       { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/99946764-0168-4560-9549-25a9edcc516a/id-preview-6a7f9595--12159e2d-f385-4a40-9017-809b3febdd86.lovable.app-1776717210449.png" },
       { name: "twitter:card", content: "summary_large_image" },

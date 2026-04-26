@@ -9,12 +9,12 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Convert NHS clinical guidelines into interactive step-by-step decision tools. Enter your blood test results and find out exactly what should happen next.",
+          "Clinician-focused interactive pathways built from published NHS guidance, organised by location and pathway.",
       },
       { property: "og:title", content: "ResultDoctor — NHS Clinical Pathways, Interactively" },
       {
         property: "og:description",
-        content: "Interactive NHS clinical pathways for patients and clinicians.",
+        content: "Interactive clinician pathways built from published NHS guidance.",
       },
     ],
   }),
@@ -50,50 +50,6 @@ function AnimatedNumber({ target, suffix = "" }: { target: number; suffix?: stri
   }, [target]);
 
   return <span ref={ref}>{value}{suffix}</span>;
-}
-
-// ─── Pathway preview card ─────────────────────────────────────
-function PathwayPreviewCard({
-  name,
-  plain,
-  category,
-  urgency,
-  delay,
-}: {
-  name: string;
-  plain: string;
-  category: string;
-  urgency: "urgent" | "routine" | "monitor";
-  delay: number;
-}) {
-  const urgencyConfig = {
-    urgent: { label: "Specialist referral", color: "#DA291C", bg: "rgba(218,41,28,0.08)" },
-    routine: { label: "Routine referral", color: "#FFB81C", bg: "rgba(255,184,28,0.08)" },
-    monitor: { label: "Monitor in primary care", color: "#00A499", bg: "rgba(0,164,153,0.08)" },
-  }[urgency];
-
-  return (
-    <div
-      style={{
-        animationDelay: `${delay}ms`,
-        opacity: 0,
-        animation: `fadeSlideUp 0.6s ease forwards ${delay}ms`,
-      }}
-      className="bg-card rounded-[14px] p-4 ring-1 ring-border hover:ring-primary/40 hover:-translate-y-0.5 hover:shadow-card transition-all cursor-default"
-    >
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{category}</span>
-        <span
-          className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
-          style={{ color: urgencyConfig.color, background: urgencyConfig.bg }}
-        >
-          {urgencyConfig.label}
-        </span>
-      </div>
-      <p className="font-semibold text-sm text-foreground">{name}</p>
-      <p className="text-xs text-muted-foreground mt-0.5">{plain}</p>
-    </div>
-  );
 }
 
 // ─── Trust logo pill ──────────────────────────────────────────
@@ -151,7 +107,7 @@ function HomePage() {
               className="inline-flex items-center gap-2 self-start text-xs font-semibold text-primary bg-primary/10 px-3.5 py-1.5 rounded-full ring-1 ring-primary/20"
             >
               <span className="size-2 rounded-full bg-primary live-dot" />
-              NHS-validated clinical pathways · Live
+                Built from published NHS guidance
             </div>
 
             {/* Headline */}
@@ -175,7 +131,7 @@ function HomePage() {
               <p className="mt-5 text-lg sm:text-xl text-muted-foreground leading-relaxed max-w-[52ch]">
                 {mode === "patient"
                   ? "Enter your blood test results. Get the exact next steps your NHS guideline recommends — in plain English."
-                  : "Interactive clinical pathways built directly from NHS guidance. Enter results and get guideline-exact recommendations. Remove the guesswork."}
+                  : "Interactive clinician pathways built from published NHS guidance. Search by test name or open the relevant pathway and work through the decision logic clearly."}
               </p>
             </div>
 
@@ -190,6 +146,12 @@ function HomePage() {
               >
                 Explore pathways
                 <span aria-hidden className="text-primary-foreground/70">→</span>
+              </Link>
+              <Link
+                to="/pathways"
+                className="inline-flex items-center gap-2 rounded-[12px] border border-border bg-card px-5 py-3 text-sm font-semibold text-foreground hover:-translate-y-0.5 hover:ring-1 hover:ring-primary/20 transition-all"
+              >
+                Search by test name
               </Link>
               <Link
                 to="/about"
@@ -210,11 +172,11 @@ function HomePage() {
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="text-primary font-bold">✓</span>
-                Patient &amp; clinician modes
+                Search or open a pathway directly
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="text-primary font-bold">✓</span>
-                Interactive and intelligent design 
+                Clear scope without implying NHS commissioning
               </span>
             </div>
           </div>
@@ -225,35 +187,15 @@ function HomePage() {
             className="lg:col-span-5 flex flex-col gap-3"
           >
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">
-              Live pathways — NW London ICB
+              Live now
             </p>
-            <PathwayPreviewCard
-              name="Anaemia Pathway"
-              plain="Low haemoglobin / low red blood cells"
-              category="Anaemia & Iron"
-              urgency="urgent"
-              delay={200}
-            />
-            <PathwayPreviewCard
-              name="Iron Deficiency"
-              plain="Low ferritin / iron stores"
-              category="Anaemia & Iron"
-              urgency="routine"
-              delay={280}
-            />
-            <PathwayPreviewCard
-              name="Abnormal FBC"
-              plain="Full blood count abnormalities"
-              category="White Cells"
-              urgency="monitor"
-              delay={360}
-            />
             <div
-              style={{ animationDelay: "440ms", opacity: 0, animation: "fadeSlideUp 0.6s ease forwards 440ms" }}
-              className="rounded-[14px] border-2 border-dashed border-border/60 p-4 text-center"
+              style={{ animationDelay: "360ms", opacity: 0, animation: "fadeSlideUp 0.6s ease forwards 360ms" }}
+              className="rounded-[14px] border-2 border-dashed border-border/60 p-5 text-center"
             >
-              <p className="text-xs font-medium text-muted-foreground">
-                +17 more pathways in development
+              <p className="text-sm font-semibold text-foreground">Explore pathways</p>
+              <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                Search by test name or browse the pathway catalogue to open the live tools.
               </p>
             </div>
 
@@ -263,8 +205,8 @@ function HomePage() {
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-card ring-1 ring-border text-[10px] font-semibold text-muted-foreground"
                 style={{ animation: "fadeSlideUp 0.6s ease forwards 500ms", opacity: 0 }}
               >
-                <span className="size-4 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-[8px]">NW</span>
-                NW London ICB · V1 9/7/20
+                <span className="size-4 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-[8px]">NCL</span>
+                Adult anaemia + adult LFTs live
               </div>
             </div>
           </div>

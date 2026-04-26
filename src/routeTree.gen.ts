@@ -13,8 +13,11 @@ import { Route as ResultsRouteImport } from './routes/results'
 import { Route as PathwaysRouteImport } from './routes/pathways'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PathwaysLocationRouteImport } from './routes/pathways.$location'
 import { Route as PathwayLftRouteImport } from './routes/pathway.lft'
 import { Route as PathwayAnaemiaRouteImport } from './routes/pathway.anaemia'
+import { Route as PathwaysLocationPathwayRouteImport } from './routes/pathways.$location.$pathway'
+import { Route as PathwaysLocationPathwayVariantRouteImport } from './routes/pathways.$location.$pathway.$variant'
 
 const ResultsRoute = ResultsRouteImport.update({
   id: '/results',
@@ -36,6 +39,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PathwaysLocationRoute = PathwaysLocationRouteImport.update({
+  id: '/$location',
+  path: '/$location',
+  getParentRoute: () => PathwaysRoute,
+} as any)
 const PathwayLftRoute = PathwayLftRouteImport.update({
   id: '/pathway/lft',
   path: '/pathway/lft',
@@ -46,31 +54,51 @@ const PathwayAnaemiaRoute = PathwayAnaemiaRouteImport.update({
   path: '/pathway/anaemia',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PathwaysLocationPathwayRoute = PathwaysLocationPathwayRouteImport.update({
+  id: '/$pathway',
+  path: '/$pathway',
+  getParentRoute: () => PathwaysLocationRoute,
+} as any)
+const PathwaysLocationPathwayVariantRoute =
+  PathwaysLocationPathwayVariantRouteImport.update({
+    id: '/$variant',
+    path: '/$variant',
+    getParentRoute: () => PathwaysLocationPathwayRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/pathways': typeof PathwaysRoute
+  '/pathways': typeof PathwaysRouteWithChildren
   '/results': typeof ResultsRoute
   '/pathway/anaemia': typeof PathwayAnaemiaRoute
   '/pathway/lft': typeof PathwayLftRoute
+  '/pathways/$location': typeof PathwaysLocationRouteWithChildren
+  '/pathways/$location/$pathway': typeof PathwaysLocationPathwayRouteWithChildren
+  '/pathways/$location/$pathway/$variant': typeof PathwaysLocationPathwayVariantRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/pathways': typeof PathwaysRoute
+  '/pathways': typeof PathwaysRouteWithChildren
   '/results': typeof ResultsRoute
   '/pathway/anaemia': typeof PathwayAnaemiaRoute
   '/pathway/lft': typeof PathwayLftRoute
+  '/pathways/$location': typeof PathwaysLocationRouteWithChildren
+  '/pathways/$location/$pathway': typeof PathwaysLocationPathwayRouteWithChildren
+  '/pathways/$location/$pathway/$variant': typeof PathwaysLocationPathwayVariantRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/pathways': typeof PathwaysRoute
+  '/pathways': typeof PathwaysRouteWithChildren
   '/results': typeof ResultsRoute
   '/pathway/anaemia': typeof PathwayAnaemiaRoute
   '/pathway/lft': typeof PathwayLftRoute
+  '/pathways/$location': typeof PathwaysLocationRouteWithChildren
+  '/pathways/$location/$pathway': typeof PathwaysLocationPathwayRouteWithChildren
+  '/pathways/$location/$pathway/$variant': typeof PathwaysLocationPathwayVariantRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -81,6 +109,9 @@ export interface FileRouteTypes {
     | '/results'
     | '/pathway/anaemia'
     | '/pathway/lft'
+    | '/pathways/$location'
+    | '/pathways/$location/$pathway'
+    | '/pathways/$location/$pathway/$variant'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -89,6 +120,9 @@ export interface FileRouteTypes {
     | '/results'
     | '/pathway/anaemia'
     | '/pathway/lft'
+    | '/pathways/$location'
+    | '/pathways/$location/$pathway'
+    | '/pathways/$location/$pathway/$variant'
   id:
     | '__root__'
     | '/'
@@ -97,12 +131,15 @@ export interface FileRouteTypes {
     | '/results'
     | '/pathway/anaemia'
     | '/pathway/lft'
+    | '/pathways/$location'
+    | '/pathways/$location/$pathway'
+    | '/pathways/$location/$pathway/$variant'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
-  PathwaysRoute: typeof PathwaysRoute
+  PathwaysRoute: typeof PathwaysRouteWithChildren
   ResultsRoute: typeof ResultsRoute
   PathwayAnaemiaRoute: typeof PathwayAnaemiaRoute
   PathwayLftRoute: typeof PathwayLftRoute
@@ -138,6 +175,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pathways/$location': {
+      id: '/pathways/$location'
+      path: '/$location'
+      fullPath: '/pathways/$location'
+      preLoaderRoute: typeof PathwaysLocationRouteImport
+      parentRoute: typeof PathwaysRoute
+    }
     '/pathway/lft': {
       id: '/pathway/lft'
       path: '/pathway/lft'
@@ -152,13 +196,64 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PathwayAnaemiaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pathways/$location/$pathway': {
+      id: '/pathways/$location/$pathway'
+      path: '/$pathway'
+      fullPath: '/pathways/$location/$pathway'
+      preLoaderRoute: typeof PathwaysLocationPathwayRouteImport
+      parentRoute: typeof PathwaysLocationRoute
+    }
+    '/pathways/$location/$pathway/$variant': {
+      id: '/pathways/$location/$pathway/$variant'
+      path: '/$variant'
+      fullPath: '/pathways/$location/$pathway/$variant'
+      preLoaderRoute: typeof PathwaysLocationPathwayVariantRouteImport
+      parentRoute: typeof PathwaysLocationPathwayRoute
+    }
   }
 }
+
+interface PathwaysLocationPathwayRouteChildren {
+  PathwaysLocationPathwayVariantRoute: typeof PathwaysLocationPathwayVariantRoute
+}
+
+const PathwaysLocationPathwayRouteChildren: PathwaysLocationPathwayRouteChildren =
+  {
+    PathwaysLocationPathwayVariantRoute: PathwaysLocationPathwayVariantRoute,
+  }
+
+const PathwaysLocationPathwayRouteWithChildren =
+  PathwaysLocationPathwayRoute._addFileChildren(
+    PathwaysLocationPathwayRouteChildren,
+  )
+
+interface PathwaysLocationRouteChildren {
+  PathwaysLocationPathwayRoute: typeof PathwaysLocationPathwayRouteWithChildren
+}
+
+const PathwaysLocationRouteChildren: PathwaysLocationRouteChildren = {
+  PathwaysLocationPathwayRoute: PathwaysLocationPathwayRouteWithChildren,
+}
+
+const PathwaysLocationRouteWithChildren =
+  PathwaysLocationRoute._addFileChildren(PathwaysLocationRouteChildren)
+
+interface PathwaysRouteChildren {
+  PathwaysLocationRoute: typeof PathwaysLocationRouteWithChildren
+}
+
+const PathwaysRouteChildren: PathwaysRouteChildren = {
+  PathwaysLocationRoute: PathwaysLocationRouteWithChildren,
+}
+
+const PathwaysRouteWithChildren = PathwaysRoute._addFileChildren(
+  PathwaysRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
-  PathwaysRoute: PathwaysRoute,
+  PathwaysRoute: PathwaysRouteWithChildren,
   ResultsRoute: ResultsRoute,
   PathwayAnaemiaRoute: PathwayAnaemiaRoute,
   PathwayLftRoute: PathwayLftRoute,

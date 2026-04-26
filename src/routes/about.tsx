@@ -7,12 +7,12 @@ export const Route = createFileRoute("/about")({
       {
         name: "description",
         content:
-          "ResultDoctor turns NHS clinical guidelines into interactive decision tools for patients and clinicians. Learn how it works and how your ICB or Trust can list pathways.",
+          "ResultDoctor turns published NHS clinical guidance into interactive clinician pathways. Learn how the location-first pathway model works.",
       },
       { property: "og:title", content: "About ResultDoctor" },
       {
         property: "og:description",
-        content: "Bridging the gap between blood test results and clinical pathways.",
+        content: "Interactive clinician pathways built from published NHS guidance.",
       },
     ],
   }),
@@ -26,32 +26,31 @@ function AboutPage() {
         About ResultDoctor
       </div>
       <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.05] text-foreground">
-        Understand your results.
+        Clear pathway structure,
         <br />
-        Know your next step.
+        careful product claims.
       </h1>
 
       <Section title="Mission">
         <p>
-          ResultDoctor exists to close the gap between a blood test result and a patient who
-          understands what it means — and between a clinical guideline and the clinician who
-          needs to apply it in 30 seconds.
+          ResultDoctor exists to make published clinical pathways easier for clinicians to
+          navigate quickly, while keeping the source location and scope of each pathway obvious.
         </p>
       </Section>
 
       <Section title="How it works">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 not-prose">
           {[
-            { n: "01", t: "NHS Guideline PDF", d: "We start with an approved NHS pathway." },
+            { n: "01", t: "Published NHS pathway", d: "We start with the source guideline and preserve the location it belongs to." },
             {
               n: "02",
-              t: "ResultDoctor Engine",
-              d: "We model the exact decision logic — verbatim, no edits.",
+              t: "Structured route model",
+              d: "Each route is organised as location, pathway family, then population variant.",
             },
             {
               n: "03",
-              t: "A clear next step",
-              d: "Patient or clinician gets a plain answer instantly.",
+              t: "Clinician-ready tool",
+              d: "The user gets a clearer operational pathway without overstating NHS affiliation.",
             },
           ].map((s) => (
             <div
@@ -70,9 +69,9 @@ function AboutPage() {
 
       <Section title="For ICBs, Trusts and Clinics">
         <p>
-          Any NHS organisation can list their own clinical guidelines on ResultDoctor. Patients
-          and clinicians in your area get a branded, interactive tool — built on your approved
-          pathways.
+          The long-term model is to support multiple organisations cleanly. Each location can
+          hold multiple pathway families, and each family can hold multiple variants such as
+          adult and child without duplicate naming collisions.
         </p>
         <a
           href="mailto:partner@resultdoctor.com"
@@ -85,19 +84,19 @@ function AboutPage() {
       <Section title="Current coverage">
         <ul>
           <li>
-            <strong>MVP:</strong> NW London ICB — Haematology (20 pathways)
+            <strong>Live now:</strong> NCL adult anaemia and adult abnormal LFT clinician pathways
           </li>
           <li>
-            <strong>In development:</strong> Hepatology, LFTs, Cardiology
+            <strong>Next phase:</strong> more locations, more pathway families, and child/adult variants where guidelines differ
           </li>
         </ul>
       </Section>
 
       <Section title="Built with clinical safety in mind">
         <p>
-          ResultDoctor does not generate or modify clinical content. All text is reproduced
-          verbatim from NHS-approved guidelines. The tool is a navigation aid, not a diagnostic
-          system.
+          ResultDoctor is a navigation aid built from published guidance. It should not be
+          described as an NHS service or commissioned product unless that relationship exists
+          explicitly for the pathway being shown.
         </p>
       </Section>
     </div>
